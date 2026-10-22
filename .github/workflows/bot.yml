@@ -1,0 +1,103 @@
+import csv, json, os, time, datetime
+import urllib.parse, urllib.request
+import ccxt
+
+EXCHANGES = ["bitvavo", "kraken", "bitstamp", "coinbase",
+             "cryptocom", "okx", "bybit", "gate"]
+QUOTE = "EUR"
+TOP_N = 15
+TIMEFRAME = "1h"
+FAST, SLOW = 20, 50
+RSI_PERIOD, RSI_MAX = 14, 70
+STOP_LOSS = 0.03
+START_BAL = 100.0
+FEE = 0.001
+SUMMARY_HOUR_UTC = 7
+STABLES = {"USDT", "USDC", "DAI", "EURC", "EURT", "PYUSD", "USDG", "TUSD", "FDUSD", "EUR", "USD"}
+
+STATE_FILE = "state.json"
+TRADES_FILE = "trades.csv"
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+CHAT = os.environ.get("CHAT_ID", "")
+
+
+def notify(msg):
+    print(msg)
+    if not TOKEN or not CHAT:
+        return
+    try:
+        url = "https://api.telegram.org/bot" + TOKEN + "/sendMessage"
+        data = urllib.parse.urlencode({"chat_id": CHAT, "text": msg}).encode()
+        urllib.request.urlopen(url, data, timeout=10)
+    except Exception as e:
+        print("Telegram error:", e)
+
+
+def log_trade(key, action, price, bal, pnl=""):
+    with open(TRADES_FILE, "a", newline="") as f:
+        csv.writer(f).writerow([time.strftime("%Y-%m-%d %H:%M:%S"), key,
+                                action, round(price, 6), round(bal, 2), pnl])
+
+
+def ema(values, period):
+    k = 2 / (period + 1)
+    out = [values[0]]
+    for v in values[1:]:
+        out.append(v * k + out[-1] * (1 - k))
+    return out
+
+
+def rsi(values, period=14):
+    if len(values) <= period + 1:
+        return 50.0
+    gains, losses = [], []
+    for i in range(1, len(values)):
+        d = values[i] - values[i - 1]
+        gains.append(max(d, 0))
+        losses.append(max(-d, 0))
+    ag = sum(gains[:period]) / period
+    al = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+    if al == 0:
+        return 100.0
+    return 100 - 100 / (1 + ag / al)
+
+
+def pick_symbols(ex):
+    ex.load_markets()
+    tickers = ex.fetch_tickers()
+    rows = []
+    for sym, m in ex.markets.items():
+        if not m.get("spot") or m.get("active") is False:
+            continue
+        if m.get("quote") != QUOTE or m.get("base") in STABLES:
+            continue
+        t = tickers.get(sym)
+        if not t:
+            continue
+        vol = t.get("quoteVolume")
+        if vol is None and t.get("baseVolume") and t.get("last"):
+            vol = t["baseVolume"] * t["last"]
+        rows.append((vol or 0, sym))
+    rows.sort(reverse=True)
+    return [s for _, s in rows[:TOP_N]]
+
+
+def new_pair():
+    return {"bal": START_BAL, "coin": 0.0, "entry": None,
+            "cost": None, "last_ts": None}
+
+
+def sell(key, st, price, reason):
+    bal = st["coin"] * price * (1 - FEE)
+    pnl = (bal / st["cost"] - 1) * 100
+    notify(f"{reason} {key} at {price:.6g} | balance {bal:.2f} | P&L {pnl:+.2f}%")
+    log_trade(key, reason, price, bal, f"{pnl:.2f}")
+    st["bal"], st["coin"], st["entry"], st["cost"] = bal, 0.0, None, None
+
+
+def process(ex, key, symbol, st):
+    candles = ex.fetch_ohlcv(symbol, TIMEFRAME, limit=200)
+    if len(candles) 
