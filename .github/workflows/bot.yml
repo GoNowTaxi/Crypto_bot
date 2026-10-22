@@ -1,0 +1,67 @@
+log_trade(key, "BUY", c[4], st["cost"])
+        elif st["coin"] > 0 and down:
+            sell(key, st, c[4], "SELL")
+    st["last_ts"] = closed[-1][0]
+    return last_price
+
+
+def main():
+    if not os.path.exists(TRADES_FILE):
+        with open(TRADES_FILE, "w", newline="") as f:
+            csv.writer(f).writerow(["time", "pair", "action", "price", "balance", "pnl_pct"])
+    state = {"pairs": {}, "meta": {}}
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            state = json.load(f)
+    pairs, meta = state["pairs"], state["meta"]
+    prices = {}
+
+    for ex_id in EXCHANGES:
+        cls = getattr(ccxt, ex_id, None)
+        if cls is None:
+            print("unknown exchange", ex_id)
+            continue
+        try:
+            ex = cls({"enableRateLimit": True, "timeout": 20000})
+            syms = pick_symbols(ex)
+        except Exception as e:
+            print(ex_id, "skipped:", e)
+            continue
+        held = [k.split("|", 1)[1] for k, v in pairs.items()
+                if k.startswith(ex_id + "|") and v["coin"] > 0]
+        for sym in list(dict.fromkeys(syms + held)):
+            key = ex_id + "|" + sym
+            st = pairs.setdefault(key, new_pair())
+            try:
+                p = process(ex, key, sym, st)
+                if p:
+                    prices[key] = p
+            except Exception as e:
+                print(key, "error:", e)
+
+    total = 0.0
+    open_pos = 0
+    for key, st in pairs.items():
+        price = prices.get(key) or st["entry"] or 0
+        total += st["bal"] + st["coin"] * price
+        if st["coin"] > 0:
+            open_pos += 1
+    start_total = START_BAL * len(pairs)
+
+    if not meta.get("started"):
+        meta["started"] = True
+        notify(f"GitHub paper bot started | {len(pairs)} pairs | {TIMEFRAME}")
+
+    now = datetime.datetime.utcnow()
+    today = now.strftime("%Y-%m-%d")
+    if now.hour >= SUMMARY_HOUR_UTC and meta.get("last_summary") != today:
+        meta["last_summary"] = today
+        pnl = (total / start_total - 1) * 100 if start_total else 0
+        notify(f"Daily summary | value {total:.2f} {QUOTE} | P&L {pnl:+.2f}% | "
+               f"open positions {open_pos} | pairs {len(pairs)}")
+
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+
+main()
