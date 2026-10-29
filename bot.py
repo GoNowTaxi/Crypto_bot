@@ -5,7 +5,7 @@ import ccxt
 EXCHANGES = ["bitvavo", "kraken", "bitstamp", "coinbase",
              "cryptocom", "okx", "bybit", "gate"]
 QUOTE = "EUR"
-TOP_N = 15
+TOP_N = 40
 TIMEFRAME = "1h"
 FAST, SLOW = 20, 50
 RSI_PERIOD, RSI_MAX = 14, 70
