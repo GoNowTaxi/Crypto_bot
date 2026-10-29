@@ -14,6 +14,8 @@ START_BAL = 100.0
 FEE = 0.001
 SUMMARY_HOUR_UTC = 7
 STABLES = {"USDT", "USDC", "DAI", "EURC", "EURT", "PYUSD", "USDG", "TUSD", "FDUSD", "EUR", "USD"}
+EXCHANGES = ["kraken"]
+
 
 STATE_FILE = "state.json"
 TRADES_FILE = "trades.csv"
